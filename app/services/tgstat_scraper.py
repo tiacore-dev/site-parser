@@ -1,85 +1,52 @@
 import time
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from loguru import logger
 from app.utils.driver import create_firefox_driver
 
 
-def get_tgstat_comments(post_url, max_comments=20):
-    """Парсит комментарии с поста Tgstat."""
+def get_tgstat_channel_stats(channel_url):
+    """Парсит статистику Telegram-канала с Tgstat."""
     driver = create_firefox_driver()
     try:
-        logger.info(f"Открываем страницу {post_url}")
-        driver.get(post_url)
+        logger.info(f"Открываем страницу канала {channel_url}")
+        driver.get(channel_url)
         time.sleep(5)
 
-        # Проверяем, есть ли блок комментариев
+        stats = {}
+
         try:
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, ".comments"))
-            )
-            logger.info("Контейнер с комментариями найден!")
+            # Охват (средний)
+            avg_views = WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'Средний охват')]/following-sibling::div"))
+            ).text
+            stats["average_views"] = avg_views
+            logger.info(f"Средний охват: {avg_views}")
+
+            # ER (вовлеченность)
+            er = driver.find_element(
+                By.XPATH, "//div[contains(text(), 'ER')]/following-sibling::div").text
+            stats["engagement_rate"] = er
+            logger.info(f"ER: {er}")
+
+            # Количество подписчиков
+            subscribers = driver.find_element(
+                By.XPATH, "//div[contains(text(), 'Подписчики')]/following-sibling::div").text
+            stats["subscribers"] = subscribers
+            logger.info(f"Подписчики: {subscribers}")
+
+            # Дата создания
+            creation_date = driver.find_element(
+                By.XPATH, "//div[contains(text(), 'Создан')]/following-sibling::div").text
+            stats["creation_date"] = creation_date
+            logger.info(f"Дата создания: {creation_date}")
+
         except Exception as e:
-            logger.warning(
-                f"Контейнер с комментариями не найден! Возможно, комментарии отключены. Error message: {e}")
-            return {"error": "Контейнер с комментариями не найден"}
+            logger.warning(f"Ошибка при парсинге данных: {e}")
 
-        comments = set()
-        last_height = driver.execute_script(
-            "return document.documentElement.scrollHeight")
-
-        logger.info("Начинаем прокрутку комментариев...")
-
-        while len(comments) < max_comments:
-            driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END)
-            time.sleep(2)
-
-            try:
-                WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located(
-                        (By.CSS_SELECTOR, ".comment-item"))
-                )
-            except Exception as e:
-                logger.warning(
-                    f"Новые комментарии не подгружаются! Error message: {e}")
-
-            comment_elements = driver.find_elements(
-                By.CSS_SELECTOR, ".comment-item .text")
-
-            if not comment_elements:
-                logger.warning(
-                    "Комментарии не найдены! Возможно, пост закрыт.")
-                break
-
-            for comment in comment_elements:
-                text = comment.text.strip()
-                if text and text not in comments:
-                    comments.add(text)
-                    logger.debug(f"Добавлен комментарий: {text[:50]}...")
-
-                if len(comments) >= max_comments:
-                    logger.info(
-                        "Достигнуто максимальное количество комментариев.")
-                    break
-
-            new_height = driver.execute_script(
-                "return document.documentElement.scrollHeight")
-            if new_height == last_height:
-                logger.info(
-                    "Достигнут конец страницы, больше комментариев нет.")
-                break
-            last_height = new_height
-
-        if not comments:
-            logger.warning("Не удалось собрать ни одного комментария!")
-
-        return {"post_url": post_url, "comments": list(comments)}
-
-    except Exception as e:
-        logger.error(f"Ошибка при парсинге: {e}")
-        return {"error": str(e)}
+        return {"channel_url": channel_url, "stats": stats}
 
     finally:
         logger.info("Закрываем браузер...")

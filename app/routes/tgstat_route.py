@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
-from app.services.tgstat_scraper import get_tgstat_comments  # Импортируем парсер
+from app.services.tgstat_scraper import get_tgstat_channel_stats  # Импортируем парсер
 
 tgstat_router = APIRouter()
 
@@ -8,11 +8,10 @@ tgstat_router = APIRouter()
 
 
 class TGStatRequest(BaseModel):
-    post_url: str
-    max_comments: int = 20
+    channel_url: str
 
 
-@tgstat_router.post("/tgstat/comments")
-async def tgstat_comments(request: TGStatRequest):
-    result = get_tgstat_comments(request.post_url, request.max_comments)
+@tgstat_router.post("/tgstat/stats")
+async def tgstat_stats(request: TGStatRequest):
+    result = get_tgstat_channel_stats(request.channel_url)
     return result
