@@ -6,30 +6,43 @@ from loguru import logger
 from app.utils.driver import create_firefox_driver
 
 
-def retry_find_element(driver, by, value, retries=5, delay=3):
-    """Ищет элемент с ретраями и прокруткой вниз."""
-    attempt = 0
-    start_time = time.time()
+def scroll_down(driver):
+    """Плавно прокручивает страницу вниз, чтобы подгрузить динамический контент."""
+    scroll_pause_time = 2  # Задержка между скроллами
+    screen_height = driver.execute_script(
+        "return window.innerHeight;")  # Высота окна браузера
+    scroll_count = 0
 
-    while attempt < retries:
+    while True:
+        scroll_count += 1
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(scroll_pause_time)
+
+        new_height = driver.execute_script(
+            "return document.body.scrollHeight;")
+        if new_height == screen_height:  # Если высота не изменилась, значит, скроллить больше нечего
+            break
+        screen_height = new_height
+
+    logger.info(f"✅ Страница прокручена {scroll_count} раз(а).")
+
+
+def find_element_with_retries(driver, xpath, max_attempts=5, delay=3):
+    """Ищет элемент, делая несколько попыток с задержкой."""
+    attempts = 0
+    while attempts < max_attempts:
         try:
-            driver.execute_script(
-                "window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(1)  # Даём время подгрузиться новым данным
             element = WebDriverWait(driver, delay).until(
-                EC.presence_of_element_located((by, value))
+                EC.presence_of_element_located((By.XPATH, xpath))
             )
-            elapsed_time = time.time() - start_time
-            logger.info(
-                f"Элемент найден на {attempt + 1}-й попытке (за {elapsed_time:.2f} сек).")
-            return element
+            logger.info(f"✅ Найден элемент: {xpath} (попытка {attempts+1})")
+            return element.text
         except Exception:
             logger.warning(
-                f"Попытка {attempt + 1}/{retries}: элемент не найден. Ждём {delay} сек...")
+                f"⚠ Элемент {xpath} не найден (попытка {attempts+1})")
             time.sleep(delay)
-            attempt += 1
-
-    logger.error(f"Не удалось найти элемент после {retries} попыток.")
+            attempts += 1
     return None
 
 
@@ -38,77 +51,30 @@ def get_tgstat_channel_stats(channel_url):
     driver = create_firefox_driver()
 
     try:
-        logger.info(f"Открываем страницу канала {channel_url}")
+        logger.info(f"🌍 Открываем страницу {channel_url}")
         driver.get(channel_url)
+        time.sleep(5)  # Ждём начальную загрузку страницы
 
-        logger.info("Ждём полную загрузку страницы...")
-        WebDriverWait(driver, 15).until(
-            lambda d: d.execute_script(
-                "return document.readyState") == "complete"
-        )
-
-        logger.info("Ждём 5 секунд на прогрузку динамического контента...")
-        time.sleep(5)
-
-        # Прокрутка вниз
-        driver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3)
-
-        # Логируем текст страницы, чтобы понять, что загружено
-        page_text = driver.execute_script("return document.body.innerText;")
-        logger.info("Текст на странице (первые 1000 символов):")
-        logger.info(page_text[:1000])
+        logger.info("📜 Прокручиваем страницу...")
+        scroll_down(driver)
 
         stats = {}
 
-        # Подписчики
-        element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'Подписчики')]")
-        if element:
-            stats["subscribers"] = element.text
-            logger.info(f"Подписчики: {element.text}")
-        else:
-            logger.warning("Не удалось получить подписчиков")
+        stats["subscribers"] = find_element_with_retries(
+            driver, "//h2[contains(text(), 'Подписчики')]/preceding-sibling::h2")
+        stats["average_views"] = find_element_with_retries(
+            driver, "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2")
+        stats["engagement_rate"] = find_element_with_retries(
+            driver, "//h2[contains(text(), 'ERR')]/preceding-sibling::h2")
+        stats["creation_date"] = find_element_with_retries(
+            driver, "//h2[contains(text(), 'Дата создания')]/preceding-sibling::h2")
+        stats["posts_count"] = find_element_with_retries(
+            driver, "//h2[contains(text(), 'публикаций')]/preceding-sibling::h2")
 
-        # Средний охват
-        element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'средний охват')]")
-        if element:
-            stats["average_views"] = element.text
-            logger.info(f"Средний охват: {element.text}")
-        else:
-            logger.warning("Не удалось получить средний охват")
-
-        # ERR (вовлеченность)
-        element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'ERR')]")
-        if element:
-            stats["engagement_rate"] = element.text
-            logger.info(f"ERR: {element.text}")
-        else:
-            logger.warning("Не удалось получить ERR")
-
-        # Дата создания
-        element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'Дата создания')]")
-        if element:
-            stats["creation_date"] = element.text
-            logger.info(f"Дата создания канала: {element.text}")
-        else:
-            logger.warning("Не удалось получить дату создания")
-
-        # Количество публикаций
-        element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'публикаций')]")
-        if element:
-            stats["posts_count"] = element.text
-            logger.info(f"Количество публикаций: {element.text}")
-        else:
-            logger.warning("Не удалось получить количество публикаций")
+        logger.info(f"📊 Собранные данные: {stats}")
 
         return {"channel_url": channel_url, "stats": stats}
 
     finally:
-        logger.info("Закрываем браузер...")
+        logger.info("❎ Закрываем браузер...")
         driver.quit()

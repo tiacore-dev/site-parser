@@ -12,8 +12,8 @@ class TGStatRequest(BaseModel):
     channel_url: str
 
 
-@tgstat_router.post("/tgstat/stats/selenium")
-async def tgstat_stats_selenium(request: TGStatRequest):
+@tgstat_router.post("/tgstat/stats")
+async def tgstat_stats(request: TGStatRequest):
     result = get_tgstat_channel_stats(request.channel_url)
     return result
 
