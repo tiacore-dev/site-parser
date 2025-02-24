@@ -1,41 +1,7 @@
 import time
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from loguru import logger
 from app.utils.driver import create_firefox_driver
-
-
-def scroll_down_slowly(driver, step=500, delay=2):
-    """Постепенно прокручивает страницу вниз, чтобы подгрузить все элементы."""
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    while True:
-        # Скроллим вниз на step пикселей
-        driver.execute_script(f"window.scrollBy(0, {step});")
-        time.sleep(delay)
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            break  # Если высота не изменилась – значит, всё прогрузилось
-        last_height = new_height
-    logger.info("✅ Полностью прокрутили страницу.")
-
-
-def find_element_with_retries(driver, xpath, max_attempts=5, delay=3):
-    """Ищет элемент, делая несколько попыток с задержкой."""
-    attempts = 0
-    while attempts < max_attempts:
-        try:
-            element = WebDriverWait(driver, delay).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
-            logger.info(f"✅ Найден элемент: {xpath} (попытка {attempts+1})")
-            return element.text.strip()
-        except Exception:
-            logger.warning(
-                f"⚠ Элемент {xpath} не найден (попытка {attempts+1})")
-            time.sleep(delay)
-            attempts += 1
-    return None
+from bs4 import BeautifulSoup
 
 
 def get_tgstat_channel_stats(channel_url):
@@ -45,26 +11,45 @@ def get_tgstat_channel_stats(channel_url):
     try:
         logger.info(f"🌍 Открываем страницу {channel_url}")
         driver.get(channel_url)
-        time.sleep(5)  # Ждём начальную загрузку
+        time.sleep(5)
 
+        # Прокрутка страницы
         logger.info("📜 Прокручиваем страницу для подгрузки контента...")
-        scroll_down_slowly(driver)
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(5)  # Даем контенту загрузиться
+
+        # Получаем HTML после загрузки
+        page_html = driver.page_source
+
+        # Передаем HTML в BeautifulSoup
+        soup = BeautifulSoup(page_html, 'lxml')
 
         stats = {}
 
-        # Получаем данные
-        stats["subscribers"] = find_element_with_retries(
-            driver, "//div[contains(text(), 'подписчики')]/preceding-sibling::h2")
-        stats["average_views"] = find_element_with_retries(
-            driver, "//div[contains(text(), 'средний охват')]/preceding-sibling::h2")
-        stats["engagement_rate"] = find_element_with_retries(
-            driver, "//div[contains(text(), 'вовлеченность подписчиков (ER)')]/preceding-sibling::h2")
-        stats["creation_date"] = find_element_with_retries(
-            driver, "//span[contains(text(), 'канал создан')]/preceding-sibling::b")
-        stats["total_posts"] = find_element_with_retries(
-            driver, "//div[contains(text(), 'публикации')]/preceding-sibling::h2")
-        stats["citation_index"] = find_element_with_retries(
-            driver, "//div[contains(text(), 'индекс цитирования')]/preceding-sibling::h2")
+        def find_stat(label):
+            """Функция поиска значения по тексту."""
+            tag = soup.find(lambda tag: tag.name ==
+                            "div" and label in tag.text.lower())
+            if tag:
+                h2 = tag.find_previous_sibling("h2")
+                return h2.text.strip() if h2 else None
+            return None
+
+        # Парсим нужные параметры
+        stats["subscribers"] = find_stat("подписчики")
+        stats["average_views"] = find_stat("средний охват")
+        stats["engagement_rate"] = find_stat("вовлеченность подписчиков (er)")
+        stats["total_posts"] = find_stat("публикации")
+        stats["citation_index"] = find_stat("индекс цитирования")
+
+        # Специальный парсинг для даты создания
+        date_tag = soup.find(lambda tag: tag.name ==
+                             "span" and "канал создан" in tag.text.lower())
+        if date_tag:
+            creation_date = date_tag.find_previous_sibling("b")
+            stats["creation_date"] = creation_date.text.strip(
+            ) if creation_date else None
 
         logger.info(f"📊 Собранные данные: {stats}")
 
