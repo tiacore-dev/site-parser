@@ -1,6 +1,6 @@
 import time
-from loguru import logger
 import chardet
+from loguru import logger
 # Импортируем Selenium Wire вместо обычного SeleniumS
 from seleniumwire import webdriver
 
