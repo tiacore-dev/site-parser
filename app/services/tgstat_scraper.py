@@ -1,7 +1,7 @@
 import time
 from loguru import logger
-from app.utils.driver import create_firefox_driver
 from bs4 import BeautifulSoup
+from app.utils.driver import create_firefox_driver
 
 
 def get_tgstat_channel_stats(channel_url):
@@ -13,27 +13,43 @@ def get_tgstat_channel_stats(channel_url):
         driver.get(channel_url)
         time.sleep(5)
 
-        # Прокрутка страницы
+        # Прокрутка страницы вниз несколько раз для подгрузки данных
         logger.info("📜 Прокручиваем страницу для подгрузки контента...")
-        driver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(5)  # Даем контенту загрузиться
+        for _ in range(3):  # Скроллим 3 раза, чтобы наверняка прогрузить
+            driver.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(3)
+
+        logger.info("✅ Закончили скроллинг, получаем HTML...")
 
         # Получаем HTML после загрузки
         page_html = driver.page_source
 
+        # Логируем первые 2000 символов, чтобы убедиться, что контент есть
+        logger.info(f"🔍 HTML страницы (фрагмент): {page_html[:2000]}")
+
         # Передаем HTML в BeautifulSoup
-        soup = BeautifulSoup(page_html, 'lxml')
+        soup = BeautifulSoup(page_html, "html.parser")
 
         stats = {}
 
         def find_stat(label):
             """Функция поиска значения по тексту."""
+            logger.info(f"🔍 Ищем '{label}' в HTML...")
             tag = soup.find(lambda tag: tag.name ==
-                            "div" and label in tag.text.lower())
+                            "div" and label.lower() in tag.text.lower())
+
             if tag:
                 h2 = tag.find_previous_sibling("h2")
-                return h2.text.strip() if h2 else None
+                if h2:
+                    logger.info(f"✅ Найден '{label}': {h2.text.strip()}")
+                    return h2.text.strip()
+                else:
+                    logger.warning(
+                        f"⚠ Текст найден, но предшествующий <h2> отсутствует: {tag.text.strip()}")
+            else:
+                logger.warning(f"⚠ Не найден '{label}' в HTML!")
+
             return None
 
         # Парсим нужные параметры
@@ -44,12 +60,19 @@ def get_tgstat_channel_stats(channel_url):
         stats["citation_index"] = find_stat("индекс цитирования")
 
         # Специальный парсинг для даты создания
+        logger.info("🔍 Ищем дату создания канала...")
         date_tag = soup.find(lambda tag: tag.name ==
                              "span" and "канал создан" in tag.text.lower())
         if date_tag:
             creation_date = date_tag.find_previous_sibling("b")
-            stats["creation_date"] = creation_date.text.strip(
-            ) if creation_date else None
+            if creation_date:
+                stats["creation_date"] = creation_date.text.strip()
+                logger.info(
+                    f"✅ Дата создания канала: {creation_date.text.strip()}")
+            else:
+                logger.warning("⚠ Не найден тег <b> перед датой создания!")
+        else:
+            logger.warning("⚠ Не найдена дата создания!")
 
         logger.info(f"📊 Собранные данные: {stats}")
 
