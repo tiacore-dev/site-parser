@@ -1,11 +1,13 @@
 import time
 from loguru import logger
-from bs4 import BeautifulSoup
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from app.utils.driver import create_firefox_driver
 
 
 def get_tgstat_channel_stats(channel_url):
-    """Парсит статистику Telegram-канала с Tgstat."""
+    """Парсит статистику Telegram-канала с Tgstat, имитируя взаимодействие с сайтом."""
     driver = create_firefox_driver()
 
     try:
@@ -15,67 +17,57 @@ def get_tgstat_channel_stats(channel_url):
 
         # Прокрутка страницы вниз несколько раз для подгрузки данных
         logger.info("📜 Прокручиваем страницу для подгрузки контента...")
-        for _ in range(3):  # Скроллим 3 раза, чтобы наверняка прогрузить
+        for _ in range(3):
             driver.execute_script(
                 "window.scrollTo(0, document.body.scrollHeight);")
-            time.sleep(3)
+            time.sleep(2)
 
-        logger.info("✅ Закончили скроллинг, получаем HTML...")
+        # Пробуем кликать по вкладкам, если они есть
+        def click_tab(tab_text):
+            try:
+                tab = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable(
+                        (By.XPATH, f"//div[contains(text(), '{tab_text}')]"))
+                )
+                tab.click()
+                logger.info(f"✅ Кликнули по вкладке: {tab_text}")
+                time.sleep(2)  # Даём контенту загрузиться
+            except Exception as e:
+                logger.warning(
+                    f"⚠ Не удалось кликнуть по вкладке '{tab_text}': {e}")
 
-        # Получаем HTML после загрузки
-        page_html = driver.page_source
+        click_tab("Подписчики")
+        click_tab("Индекс цитирования")
+        click_tab("Охваты публикаций")
 
-        # Логируем первые 2000 символов, чтобы убедиться, что контент есть
-        logger.info(f"🔍 HTML страницы (фрагмент): {page_html[:2000]}")
-
-        # Передаем HTML в BeautifulSoup
-        soup = BeautifulSoup(page_html, "html.parser")
-
+        # Теперь пробуем снова получить данные
         stats = {}
 
-        def find_stat(label):
-            """Функция поиска значения по тексту."""
-            logger.info(f"🔍 Ищем '{label}' в HTML...")
-            tag = soup.find(lambda tag: tag.name ==
-                            "div" and label.lower() in tag.text.lower())
+        def find_stat(label, xpath):
+            """Функция поиска значения с логами."""
+            try:
+                logger.info(f"🔍 Ищем '{label}'...")
+                value = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, xpath))
+                ).text.strip()
+                logger.info(f"✅ Найдено '{label}': {value}")
+                return value
+            except Exception as e:
+                logger.warning(f"⚠ Не удалось найти '{label}': {e}")
+                return None
 
-            if tag:
-                h2 = tag.find_previous_sibling("h2")
-                if h2:
-                    logger.info(f"✅ Найден '{label}': {h2.text.strip()}")
-                    return h2.text.strip()
-                else:
-                    logger.warning(
-                        f"⚠ Текст найден, но предшествующий <h2> отсутствует: {tag.text.strip()}")
-            else:
-                logger.warning(f"⚠ Не найден '{label}' в HTML!")
-
-            return None
-
-        # Парсим нужные параметры
-        stats["subscribers"] = find_stat("подписчики")
-        stats["average_views"] = find_stat("средний охват")
-        stats["engagement_rate"] = find_stat("вовлеченность подписчиков (er)")
-        stats["total_posts"] = find_stat("публикации")
-        stats["citation_index"] = find_stat("индекс цитирования")
-
-        # Специальный парсинг для даты создания
-        logger.info("🔍 Ищем дату создания канала...")
-        date_tag = soup.find(lambda tag: tag.name ==
-                             "span" and "канал создан" in tag.text.lower())
-        if date_tag:
-            creation_date = date_tag.find_previous_sibling("b")
-            if creation_date:
-                stats["creation_date"] = creation_date.text.strip()
-                logger.info(
-                    f"✅ Дата создания канала: {creation_date.text.strip()}")
-            else:
-                logger.warning("⚠ Не найден тег <b> перед датой создания!")
-        else:
-            logger.warning("⚠ Не найдена дата создания!")
+        stats["subscribers"] = find_stat(
+            "Подписчики", "//h2[contains(text(), 'подписчики')]/preceding-sibling::h2")
+        stats["average_views"] = find_stat(
+            "Средний охват", "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2")
+        stats["engagement_rate"] = find_stat(
+            "Вовлеченность", "//h2[contains(text(), 'вовлеченность подписчиков (ER)')]/preceding-sibling::h2")
+        stats["total_posts"] = find_stat(
+            "Публикации", "//h2[contains(text(), 'публикации')]/preceding-sibling::h2")
+        stats["citation_index"] = find_stat(
+            "Индекс цитирования", "//h2[contains(text(), 'индекс цитирования')]/preceding-sibling::h2")
 
         logger.info(f"📊 Собранные данные: {stats}")
-
         return {"channel_url": channel_url, "stats": stats}
 
     finally:
