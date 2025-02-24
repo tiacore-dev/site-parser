@@ -6,75 +6,95 @@ from loguru import logger
 from app.utils.driver import create_firefox_driver
 
 
-def scroll_down(driver):
-    """Плавно прокручивает страницу вниз, чтобы подгрузить динамический контент."""
-    scroll_pause_time = 2  # Задержка между скроллами
-    screen_height = driver.execute_script(
-        "return window.innerHeight;")  # Высота окна браузера
-    scroll_count = 0
-
-    while True:
-        scroll_count += 1
-        driver.execute_script(
-            "window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(scroll_pause_time)
-
-        new_height = driver.execute_script(
-            "return document.body.scrollHeight;")
-        if new_height == screen_height:  # Если высота не изменилась, значит, скроллить больше нечего
-            break
-        screen_height = new_height
-
-    logger.info(f"✅ Страница прокручена {scroll_count} раз(а).")
-
-
-def find_element_with_retries(driver, xpath, max_attempts=5, delay=3):
-    """Ищет элемент, делая несколько попыток с задержкой."""
-    attempts = 0
-    while attempts < max_attempts:
-        try:
-            element = WebDriverWait(driver, delay).until(
-                EC.presence_of_element_located((By.XPATH, xpath))
-            )
-            logger.info(f"✅ Найден элемент: {xpath} (попытка {attempts+1})")
-            return element.text
-        except Exception:
-            logger.warning(
-                f"⚠ Элемент {xpath} не найден (попытка {attempts+1})")
-            time.sleep(delay)
-            attempts += 1
-    return None
-
-
 def get_tgstat_channel_stats(channel_url):
     """Парсит статистику Telegram-канала с Tgstat."""
     driver = create_firefox_driver()
-
     try:
-        logger.info(f"🌍 Открываем страницу {channel_url}")
+        logger.info(f"Открываем страницу канала {channel_url}")
         driver.get(channel_url)
-        time.sleep(5)  # Ждём начальную загрузку страницы
+        time.sleep(5)
 
-        logger.info("📜 Прокручиваем страницу...")
-        scroll_down(driver)
+        # Прокручиваем страницу вниз, чтобы прогрузился весь контент
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(3)  # Даём время на подгрузку
 
         stats = {}
 
-        stats["subscribers"] = find_element_with_retries(
-            driver, "//h2[contains(text(), 'Подписчики')]/preceding-sibling::h2")
-        stats["average_views"] = find_element_with_retries(
-            driver, "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2")
-        stats["engagement_rate"] = find_element_with_retries(
-            driver, "//h2[contains(text(), 'ERR')]/preceding-sibling::h2")
-        stats["creation_date"] = find_element_with_retries(
-            driver, "//h2[contains(text(), 'Дата создания')]/preceding-sibling::h2")
-        stats["posts_count"] = find_element_with_retries(
-            driver, "//h2[contains(text(), 'публикаций')]/preceding-sibling::h2")
+        try:
+            # Подписчики
+            subscribers = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'подписчики')]/preceding-sibling::h2"))
+            ).text
+            stats["subscribers"] = subscribers.strip()
+            logger.info(f"Подписчики: {subscribers}")
 
-        logger.info(f"📊 Собранные данные: {stats}")
+        except Exception as e:
+            logger.warning(f"Не удалось получить подписчиков: {e}")
+
+        try:
+            # Средний охват 1 публикации
+            avg_views = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'средний охват')]/preceding-sibling::h2"))
+            ).text
+            stats["average_views"] = avg_views.strip()
+            logger.info(f"Средний охват: {avg_views}")
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить средний охват: {e}")
+
+        try:
+            # ERR (вовлеченность)
+            engagement_rate = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'вовлеченность подписчиков (ER)')]/preceding-sibling::h2"))
+            ).text
+            stats["engagement_rate"] = engagement_rate.strip()
+            logger.info(f"ERR (вовлеченность): {engagement_rate}")
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить ERR: {e}")
+
+        try:
+            # Дата создания канала
+            creation_date = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//span[contains(text(), 'канал создан')]/preceding-sibling::b"))
+            ).text
+            stats["creation_date"] = creation_date.strip()
+            logger.info(f"Дата создания канала: {creation_date}")
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить дату создания: {e}")
+
+        try:
+            # Количество публикаций
+            total_posts = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'публикации')]/preceding-sibling::h2"))
+            ).text
+            stats["total_posts"] = total_posts.strip()
+            logger.info(f"Количество публикаций: {total_posts}")
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить количество публикаций: {e}")
+
+        try:
+            # Индекс цитирования
+            citation_index = WebDriverWait(driver, 15).until(
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(text(), 'индекс цитирования')]/preceding-sibling::h2"))
+            ).text
+            stats["citation_index"] = citation_index.strip()
+            logger.info(f"Индекс цитирования: {citation_index}")
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить индекс цитирования: {e}")
 
         return {"channel_url": channel_url, "stats": stats}
 
     finally:
-        logger.info("❎ Закрываем браузер...")
+        logger.info("Закрываем браузер...")
         driver.quit()
