@@ -4,6 +4,9 @@ from selenium import webdriver
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from loguru import logger
 
 
@@ -45,13 +48,18 @@ def get_youtube_comments(video_url, max_comments=20):
         logger.info(f"Открываем страницу {video_url}")
         driver.get(video_url)
 
-        # Проверяем, действительно ли открыта страница
-        current_url = driver.current_url
-        if "consent" in current_url:
-            logger.warning("YouTube требует подтверждения cookies!")
-            return {"error": "YouTube требует подтверждения cookies"}
-
         time.sleep(5)  # Ждем загрузки страницы
+
+        # Проверяем, появился ли контейнер комментариев
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "#comments"))
+            )
+            logger.info("Контейнер с комментариями найден!")
+        except Exception as e:
+            logger.warning(
+                f"Контейнер с комментариями не найден! Возможно, YouTube блокирует запрос. error message: {e}")
+            return {"error": "Контейнер с комментариями не найден"}
 
         comments = set()
         last_height = driver.execute_script(
@@ -63,9 +71,19 @@ def get_youtube_comments(video_url, max_comments=20):
             logger.info(
                 f"Прокручиваем страницу вниз... ({len(comments)}/{max_comments})")
 
-            driver.execute_script(
-                "window.scrollTo(0, document.documentElement.scrollHeight);")
+            # Скроллим с имитацией нажатия клавиши "End"
+            driver.find_element(By.TAG_NAME, "body").send_keys(Keys.END)
             time.sleep(2)
+
+            # Ожидание загрузки новых комментариев
+            try:
+                WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located(
+                        (By.CSS_SELECTOR, "#content-text"))
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Новые комментарии не загрузились! Error message: {e}")
 
             comments_elements = driver.find_elements(
                 By.CSS_SELECTOR, "#content-text")
