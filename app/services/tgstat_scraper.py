@@ -24,7 +24,11 @@ def get_tgstat_channel_stats(channel_url):
             if "stat" in request.url and request.response:
                 logger.info(f"🔍 Найден запрос к API: {request.url}")
                 logger.info(
-                    f"📥 Ответ: {request.response.body.decode('utf-8')}")
+                    f"🔍 Кодировка ответа: {request.response.headers.get('Content-Type')}")
+                response_encoding = request.response.encoding or 'utf-8'
+                response_text = request.response.body.decode(
+                    response_encoding, errors="replace")
+                logger.info(f"📥 Ответ: {response_text}")
                 break  # Можно обработать ответ JSON, если он в таком формате
 
     finally:
