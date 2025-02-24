@@ -6,6 +6,30 @@ from loguru import logger
 from app.utils.driver import create_firefox_driver
 
 
+def retry_find_element(driver, by, value, retries=5, delay=3):
+    """Функция с ретраями: пытается найти элемент несколько раз."""
+    attempt = 0
+    start_time = time.time()
+
+    while attempt < retries:
+        try:
+            element = WebDriverWait(driver, delay).until(
+                EC.presence_of_element_located((by, value))
+            )
+            elapsed_time = time.time() - start_time
+            logger.info(
+                f"Элемент найден на {attempt + 1}-й попытке (за {elapsed_time:.2f} сек).")
+            return element
+        except Exception:
+            logger.warning(
+                f"Попытка {attempt + 1}/{retries}: элемент не найден. Ждём {delay} сек...")
+            time.sleep(delay)
+            attempt += 1
+
+    logger.error(f"Не удалось найти элемент после {retries} попыток.")
+    return None
+
+
 def get_tgstat_channel_stats(channel_url):
     """Парсит статистику Telegram-канала с Tgstat."""
     driver = create_firefox_driver()
@@ -13,78 +37,66 @@ def get_tgstat_channel_stats(channel_url):
     try:
         logger.info(f"Открываем страницу канала {channel_url}")
         driver.get(channel_url)
-        time.sleep(5)  # Ждём загрузку страницы
 
         logger.info("Ждём полную загрузку страницы...")
         WebDriverWait(driver, 15).until(
-            EC.presence_of_element_located((By.TAG_NAME, "body"))
+            lambda d: d.execute_script(
+                "return document.readyState") == "complete"
         )
+
+        logger.info("Ждём 5 секунд на прогрузку динамического контента...")
+        time.sleep(5)  # Ждём дополнительную загрузку данных
 
         # Лог HTML страницы
         logger.info("HTML страницы после загрузки:")
         logger.info(driver.page_source[:1000])  # Выведем только часть
 
-        # Лог текста страницы
-        logger.info("Текст на странице:")
-        logger.info(driver.execute_script("return document.body.innerText;"))
-
         stats = {}
 
-        try:
-            # Подписчики
-            subscribers = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//h2[contains(text(), 'Подписчики')]/preceding-sibling::h2"))
-            ).text
-            stats["subscribers"] = subscribers
-            logger.info(f"Подписчики: {subscribers}")
+        # Подписчики
+        element = retry_find_element(
+            driver, By.XPATH, "//h2[contains(text(), 'Подписчики')]/preceding-sibling::h2")
+        if element:
+            stats["subscribers"] = element.text
+            logger.info(f"Подписчики: {element.text}")
+        else:
+            logger.warning("Не удалось получить подписчиков")
 
-        except Exception as e:
-            logger.warning(f"Не удалось получить подписчиков: {e}")
+        # Средний охват
+        element = retry_find_element(
+            driver, By.XPATH, "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2")
+        if element:
+            stats["average_views"] = element.text
+            logger.info(f"Средний охват: {element.text}")
+        else:
+            logger.warning("Не удалось получить средний охват")
 
-        try:
-            # Средний охват
-            avg_views = driver.find_element(
-                By.XPATH, "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2"
-            ).text
-            stats["average_views"] = avg_views
-            logger.info(f"Средний охват: {avg_views}")
+        # ERR (вовлеченность)
+        element = retry_find_element(
+            driver, By.XPATH, "//h2[contains(text(), 'ERR')]/preceding-sibling::h2")
+        if element:
+            stats["engagement_rate"] = element.text
+            logger.info(f"ERR: {element.text}")
+        else:
+            logger.warning("Не удалось получить ERR")
 
-        except Exception as e:
-            logger.warning(f"Не удалось получить средний охват: {e}")
+        # Дата создания
+        element = retry_find_element(
+            driver, By.XPATH, "//h2[contains(text(), 'Дата создания')]/preceding-sibling::h2")
+        if element:
+            stats["creation_date"] = element.text
+            logger.info(f"Дата создания канала: {element.text}")
+        else:
+            logger.warning("Не удалось получить дату создания")
 
-        try:
-            # ERR (вовлеченность)
-            er = driver.find_element(
-                By.XPATH, "//h2[contains(text(), 'ERR')]/preceding-sibling::h2"
-            ).text
-            stats["engagement_rate"] = er
-            logger.info(f"ERR: {er}")
-
-        except Exception as e:
-            logger.warning(f"Не удалось получить ERR: {e}")
-
-        try:
-            # Дата создания
-            creation_date = driver.find_element(
-                By.XPATH, "//h2[contains(text(), 'Дата создания')]/preceding-sibling::h2"
-            ).text
-            stats["creation_date"] = creation_date
-            logger.info(f"Дата создания канала: {creation_date}")
-
-        except Exception as e:
-            logger.warning(f"Не удалось получить дату создания: {e}")
-
-        try:
-            # Количество публикаций
-            posts_count = driver.find_element(
-                By.XPATH, "//h2[contains(text(), 'публикаций')]/preceding-sibling::h2"
-            ).text
-            stats["posts_count"] = posts_count
-            logger.info(f"Количество публикаций: {posts_count}")
-
-        except Exception as e:
-            logger.warning(f"Не удалось получить количество публикаций: {e}")
+        # Количество публикаций
+        element = retry_find_element(
+            driver, By.XPATH, "//h2[contains(text(), 'публикаций')]/preceding-sibling::h2")
+        if element:
+            stats["posts_count"] = element.text
+            logger.info(f"Количество публикаций: {element.text}")
+        else:
+            logger.warning("Не удалось получить количество публикаций")
 
         return {"channel_url": channel_url, "stats": stats}
 
