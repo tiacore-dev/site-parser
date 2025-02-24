@@ -10,6 +10,8 @@ from loguru import logger
 def create_firefox_driver():
     """Создает Firefox WebDriver в headless-режиме."""
     try:
+        logger.info("Запуск драйвера Firefox...")
+
         options = Options()
         options.headless = True  # Headless-режим
 
@@ -25,9 +27,10 @@ def create_firefox_driver():
         os.environ["DISPLAY"] = ":99"
 
         # Запускаем драйвер с уже установленным geckodriver (из Dockerfile)
-        # <-- Указываем путь вручную!
         service = Service("/usr/local/bin/geckodriver")
         driver = webdriver.Firefox(service=service, options=options)
+
+        logger.info("Драйвер успешно запущен!")
         return driver
 
     except Exception as e:
@@ -41,29 +44,58 @@ def get_youtube_comments(video_url, max_comments=20):
     try:
         logger.info(f"Открываем страницу {video_url}")
         driver.get(video_url)
+
+        # Проверяем, действительно ли открыта страница
+        current_url = driver.current_url
+        if "consent" in current_url:
+            logger.warning("YouTube требует подтверждения cookies!")
+            return {"error": "YouTube требует подтверждения cookies"}
+
         time.sleep(5)  # Ждем загрузки страницы
 
         comments = set()
         last_height = driver.execute_script(
             "return document.documentElement.scrollHeight")
 
+        logger.info("Начинаем прокрутку страницы для загрузки комментариев...")
+
         while len(comments) < max_comments:
+            logger.info(
+                f"Прокручиваем страницу вниз... ({len(comments)}/{max_comments})")
+
             driver.execute_script(
                 "window.scrollTo(0, document.documentElement.scrollHeight);")
             time.sleep(2)
 
             comments_elements = driver.find_elements(
                 By.CSS_SELECTOR, "#content-text")
+
+            if not comments_elements:
+                logger.warning(
+                    "Комментарии не найдены! Возможно, они отключены или видео закрыто.")
+                break
+
             for comment in comments_elements:
+                text = comment.text.strip()
+                if text and text not in comments:
+                    comments.add(text)
+                    logger.debug(f"Добавлен комментарий: {text[:50]}...")
+
                 if len(comments) >= max_comments:
+                    logger.info(
+                        "Достигнуто максимальное количество комментариев.")
                     break
-                comments.add(comment.text)
 
             new_height = driver.execute_script(
                 "return document.documentElement.scrollHeight")
             if new_height == last_height:
-                break  # Достигнут конец страницы
+                logger.info(
+                    "Достигнут конец страницы, больше комментариев нет.")
+                break
             last_height = new_height
+
+        if not comments:
+            logger.warning("Не удалось собрать ни одного комментария!")
 
         return {"video_url": video_url, "comments": list(comments)}
 
@@ -72,4 +104,5 @@ def get_youtube_comments(video_url, max_comments=20):
         return {"error": str(e)}
 
     finally:
+        logger.info("Закрываем браузер...")
         driver.quit()
