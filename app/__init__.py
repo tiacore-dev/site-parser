@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.logger import setup_logger
+from app.utils.logger import setup_logger
 from app.routes import register_routes
 # from app.config import Settings
 
