@@ -1,9 +1,9 @@
+import os
 import time
 from selenium import webdriver
 from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
-from webdriver_manager.firefox import GeckoDriverManager
 from loguru import logger
 
 
@@ -11,11 +11,26 @@ def create_firefox_driver():
     """Создает Firefox WebDriver в headless-режиме."""
     try:
         options = Options()
-        options.headless = True  # Headless-режим (без GUI)
-        service = Service(GeckoDriverManager().install()
-                          )  # Автоустановка драйвера
+        options.headless = True  # Headless-режим
+
+        # Дополнительные аргументы для работы в контейнере
+        # Использование RAM вместо /dev/shm
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--no-sandbox")  # Без песочницы
+        options.add_argument("--disable-gpu")  # Без GPU
+        options.add_argument("--window-size=1920x1080")  # Фикс багов отрисовки
+        options.add_argument("--remote-debugging-port=9222")  # Debugging
+
+        # Окружение для headless-режима
+        os.environ["MOZ_HEADLESS"] = "1"
+        os.environ["DISPLAY"] = ":99"
+
+        # Запускаем драйвер с уже установленным geckodriver (из Dockerfile)
+        # <-- Указываем путь вручную!
+        service = Service("/usr/local/bin/geckodriver")
         driver = webdriver.Firefox(service=service, options=options)
         return driver
+
     except Exception as e:
         logger.error(f"Ошибка при создании драйвера Firefox: {e}")
         raise
