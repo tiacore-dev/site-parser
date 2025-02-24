@@ -7,12 +7,15 @@ from app.utils.driver import create_firefox_driver
 
 
 def retry_find_element(driver, by, value, retries=5, delay=3):
-    """Функция с ретраями: пытается найти элемент несколько раз."""
+    """Ищет элемент с ретраями и прокруткой вниз."""
     attempt = 0
     start_time = time.time()
 
     while attempt < retries:
         try:
+            driver.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(1)  # Даём время подгрузиться новым данным
             element = WebDriverWait(driver, delay).until(
                 EC.presence_of_element_located((by, value))
             )
@@ -45,17 +48,23 @@ def get_tgstat_channel_stats(channel_url):
         )
 
         logger.info("Ждём 5 секунд на прогрузку динамического контента...")
-        time.sleep(5)  # Ждём дополнительную загрузку данных
+        time.sleep(5)
 
-        # Лог HTML страницы
-        logger.info("HTML страницы после загрузки:")
-        logger.info(driver.page_source[:1000])  # Выведем только часть
+        # Прокрутка вниз
+        driver.execute_script(
+            "window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(3)
+
+        # Логируем текст страницы, чтобы понять, что загружено
+        page_text = driver.execute_script("return document.body.innerText;")
+        logger.info("Текст на странице (первые 1000 символов):")
+        logger.info(page_text[:1000])
 
         stats = {}
 
         # Подписчики
         element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'Подписчики')]/preceding-sibling::h2")
+            driver, By.XPATH, "//h2[contains(text(), 'Подписчики')]")
         if element:
             stats["subscribers"] = element.text
             logger.info(f"Подписчики: {element.text}")
@@ -64,7 +73,7 @@ def get_tgstat_channel_stats(channel_url):
 
         # Средний охват
         element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'средний охват')]/preceding-sibling::h2")
+            driver, By.XPATH, "//h2[contains(text(), 'средний охват')]")
         if element:
             stats["average_views"] = element.text
             logger.info(f"Средний охват: {element.text}")
@@ -73,7 +82,7 @@ def get_tgstat_channel_stats(channel_url):
 
         # ERR (вовлеченность)
         element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'ERR')]/preceding-sibling::h2")
+            driver, By.XPATH, "//h2[contains(text(), 'ERR')]")
         if element:
             stats["engagement_rate"] = element.text
             logger.info(f"ERR: {element.text}")
@@ -82,7 +91,7 @@ def get_tgstat_channel_stats(channel_url):
 
         # Дата создания
         element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'Дата создания')]/preceding-sibling::h2")
+            driver, By.XPATH, "//h2[contains(text(), 'Дата создания')]")
         if element:
             stats["creation_date"] = element.text
             logger.info(f"Дата создания канала: {element.text}")
@@ -91,7 +100,7 @@ def get_tgstat_channel_stats(channel_url):
 
         # Количество публикаций
         element = retry_find_element(
-            driver, By.XPATH, "//h2[contains(text(), 'публикаций')]/preceding-sibling::h2")
+            driver, By.XPATH, "//h2[contains(text(), 'публикаций')]")
         if element:
             stats["posts_count"] = element.text
             logger.info(f"Количество публикаций: {element.text}")
