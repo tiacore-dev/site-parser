@@ -19,7 +19,6 @@ def create_firefox_driver():
         options.add_argument("--no-sandbox")  # Без песочницы
         options.add_argument("--disable-gpu")  # Без GPU
         options.add_argument("--window-size=1920x1080")  # Фикс багов отрисовки
-        options.add_argument("--remote-debugging-port=9222")  # Debugging
 
         # Окружение для headless-режима
         os.environ["MOZ_HEADLESS"] = "1"
