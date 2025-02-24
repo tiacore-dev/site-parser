@@ -1,5 +1,6 @@
 import time
 from loguru import logger
+import chardet
 # Импортируем Selenium Wire вместо обычного SeleniumS
 from seleniumwire import webdriver
 
@@ -23,12 +24,19 @@ def get_tgstat_channel_stats(channel_url):
         for request in driver.requests:
             if "stat" in request.url and request.response:
                 logger.info(f"🔍 Найден запрос к API: {request.url}")
-                logger.info(
-                    f"🔍 Кодировка ответа: {request.response.headers.get('Content-Type')}")
-                response_encoding = request.response.encoding or 'utf-8'
+                logger.info(f"🔍 Атрибуты response: {dir(request.response)}")
+
+                content_type = request.response.headers.get("Content-Type", "")
+                if "charset=" in content_type:
+                    response_encoding = content_type.split("charset=")[-1]
+                else:
+                    detected = chardet.detect(request.response.body)
+                    response_encoding = detected["encoding"] if detected["encoding"] else "utf-8"
+
                 response_text = request.response.body.decode(
                     response_encoding, errors="replace")
-                logger.info(f"📥 Ответ: {response_text}")
+                logger.info(f"📥 Декодированный ответ: {response_text}")
+
                 break  # Можно обработать ответ JSON, если он в таком формате
 
     finally:
