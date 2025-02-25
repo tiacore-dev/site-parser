@@ -36,17 +36,31 @@ def decode_response_body(body, headers):
     return decoded_text
 
 
+# --- МЕДЛЕННЫЙ СКРОЛЛИНГ ---
+def slow_scroll(driver):
+    """Постепенный естественный скроллинг вниз."""
+    last_height = driver.execute_script("return document.body.scrollHeight")
+    scroll_step = 500  # Шаг скролла в пикселях
+    while True:
+        driver.execute_script(f"window.scrollBy(0, {scroll_step});")
+        time.sleep(0.8)  # Даем время на загрузку контента
+        new_height = driver.execute_script("return document.body.scrollHeight")
+        if new_height == last_height:
+            break  # Достигли конца страницы
+        last_height = new_height
+
+
 # --- ФУНКЦИЯ ДЛЯ ПОЛУЧЕНИЯ СТАТИСТИКИ ---
 def get_tgstat_channel_stats(channel_url):
     """Парсит статистику Telegram-канала с Tgstat, устанавливает куки и заголовки."""
     driver = create_firefox_driver()
-    
+
     try:
         logger.info(f"🌍 Открываем TGStat и устанавливаем куки...")
 
         # Открываем TGStat для установки кук
         driver.get("https://tgstat.ru")
-        time.sleep(2)
+        time.sleep(3)
 
         # Добавляем куки (скопированные вручную)
         cookies = [
@@ -63,31 +77,31 @@ def get_tgstat_channel_stats(channel_url):
         driver.get(channel_url)
         time.sleep(5)
 
-        # Прокручиваем страницу вниз, чтобы прогрузился весь контент
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(3)
+        # Ждем полной загрузки страницы
+        WebDriverWait(driver, 15).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+
+        # Запускаем медленный скроллинг
+        slow_scroll(driver)
+
         logger.info("📄 Получаем HTML страницы...")
         html_source = driver.page_source
-        logger.info(f"HTML страницы:\n{html_source[:2000]}")  # Выведет первые 2000 символов
+        logger.info(f"HTML страницы (первые 2000 символов):\n{html_source[:2000]}")
 
         stats = {}
 
         def get_stat(xpath, stat_name):
             """Безопасно парсит элемент по XPATH."""
             try:
-                element = WebDriverWait(driver, 30).until(
-                    EC.presence_of_element_located((By.XPATH, xpath))
-                )
-                elements = driver.find_elements(By.XPATH, "//div[contains(text(), 'средний охват')]/preceding-sibling::h2")
+                elements = driver.find_elements(By.XPATH, xpath)
 
                 if elements:
-                    avg_views = elements[0].text
-                    logger.info(f"Средний охват: {avg_views}")
+                    stats[stat_name] = elements[0].text.strip()
+                    logger.info(f"{stat_name}: {stats[stat_name]}")
                 else:
-                    logger.warning("❌ Средний охват не найден!")
+                    logger.warning(f"❌ {stat_name} не найден!")
 
-                stats[stat_name] = element.text.strip()
-                logger.info(f"{stat_name}: {stats[stat_name]}")
             except Exception as e:
                 logger.warning(f"❌ Ошибка парсинга {stat_name}: {e}")
 
@@ -108,4 +122,3 @@ def get_tgstat_channel_stats(channel_url):
     finally:
         logger.info("❎ Закрываем браузер...")
         driver.quit()
-
