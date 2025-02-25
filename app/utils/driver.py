@@ -26,6 +26,8 @@ def create_firefox_driver():
 
         # Запускаем драйвер с уже установленным geckodriver (из Dockerfile)
         service = Service("/usr/local/bin/geckodriver")
+        #service = Service(r"C:\Program Files\Geckodriver\geckodriver.exe")
+
         driver = webdriver.Firefox(service=service, options=options)
 
         logger.info("Драйвер успешно запущен!")
