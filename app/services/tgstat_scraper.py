@@ -1,67 +1,73 @@
 import time
+import json
+import chardet
 import gzip
 import brotli
-import chardet
 from loguru import logger
-# Импортируем Selenium Wire вместо обычного SeleniumS
 from seleniumwire import webdriver
 
+def decode_response_body(body, headers):
+    """Декодирует тело ответа, учитывая кодировку и возможное сжатие."""
+    encoding = headers.get('Content-Encoding', '').lower()
+    
+    try:
+        if encoding == 'gzip':
+            body = gzip.decompress(body)
+        elif encoding == 'br':
+            body = brotli.decompress(body)
+    except Exception as e:
+        logger.warning(f"⚠ Ошибка декомпрессии ({encoding}): {e}")
+
+    detected_encoding = chardet.detect(body)['encoding'] or 'utf-8'
+    
+    try:
+        decoded_text = body.decode(detected_encoding, errors='replace')
+    except Exception as e:
+        logger.warning(f"⚠ Ошибка декодирования в {detected_encoding}: {e}")
+        decoded_text = body.decode('utf-8', errors='replace')
+
+    return decoded_text
 
 def get_tgstat_channel_stats(channel_url):
-    """Парсит статистику Telegram-канала с Tgstat, перехватывая AJAX-запросы."""
+    """Парсит статистику Telegram-канала с Tgstat, перехватывая все запросы."""
     options = webdriver.FirefoxOptions()
-    options.headless = True
+    options.headless = False  # Делаем видимым для тестов
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--no-sandbox")  # Без песочницы
-    options.add_argument("--disable-gpu")  # Без GPU
-    options.add_argument("--window-size=1920x1080")  # Фикс багов отрисовки
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920x1080")
+
     driver = webdriver.Firefox(options=options)
 
     try:
         logger.info(f"🌍 Открываем страницу {channel_url}")
         driver.get(channel_url)
-        time.sleep(5)
+        time.sleep(10)  # Даем больше времени на загрузку данных
 
         logger.info("📡 Перехватываем сетевые запросы...")
         for request in driver.requests:
+            if not request.response:
+                continue
             
-            if "stat" in request.url and request.response:
-                logger.info(f"🔍 Найден запрос к API: {request.url}")
-                logger.info(f"🔍 Атрибуты response: {dir(request.response)}")
-                body = request.response.body
-                with open("tgstat_raw_response.bin", "wb") as f:
-                    f.write(body)
-                logger.info("📂 Сырые данные сохранены в файл tgstat_raw_response.bin")
-                logger.info(f"🔍 HEX-дамп первых 100 байтов: {body[:100].hex()}")
+            url = request.url
+            status = request.response.status_code
+            content_type = request.response.headers.get("Content-Type", "")
 
-                content_encoding = request.response.headers.get("Content-Encoding", "")
-                if "charset=" in content_encoding:
-                    response_encoding = content_encoding.split("charset=")[-1]
-                else:
+            logger.info(f"🔍 Запрос: {url} (Статус: {status}, Content-Type: {content_type})")
+            logger.info(f"📜 Заголовки запроса: {request.headers}")
+            
+            if "application/json" in content_type:
+                decoded_response = decode_response_body(request.response.body, request.response.headers)
+                
+                if decoded_response.startswith("{") or decoded_response.startswith("["):
                     try:
-                        if "gzip" in content_encoding:
-                            logger.info("🗜 Попробуем ещё раз явно распаковать Gzip...")
-                            body = gzip.decompress(body)
-                        elif "br" in content_encoding:
-                            logger.info("🗜 Попробуем ещё раз явно распаковать Brotli...")
-                            body = brotli.decompress(body)
-                    except Exception as e:
-                        logger.warning(f"⚠ Ошибка распаковки: {e}")
-                    detected = chardet.detect(body)
-                    response_encoding = detected["encoding"] if detected["encoding"] else "utf-8"
-                    logger.info(f"📊 Определённая кодировка: {response_encoding}")
-
-                    response_encoding = detected["encoding"] if detected["encoding"] else "utf-8"
-
-                try:
-                    response_text = body.decode(response_encoding, errors="replace")
-                    logger.info(f"📥 Декодированный ответ: {response_text[:1000]}")  # Только первые 1000 символов, чтобы не заспамить логи
-                except Exception as e:
-                    logger.warning(f"⚠ Ошибка декодирования: {e}")
-
-                logger.info(f"📥 Декодированный ответ: {response_text}")
-
-                break  # Можно обработать ответ JSON, если он в таком формате
+                        parsed_json = json.loads(decoded_response)
+                        logger.info(f"📥 JSON-ответ: {json.dumps(parsed_json, indent=4, ensure_ascii=False)}")
+                        return parsed_json
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"⚠ Ошибка разбора JSON: {e}")
+                else:
+                    logger.info(f"📜 Текстовый ответ (первые 500 символов): {decoded_response[:500]}")
 
     finally:
         logger.info("❎ Закрываем браузер...")
