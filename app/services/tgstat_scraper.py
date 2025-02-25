@@ -66,15 +66,26 @@ def get_tgstat_channel_stats(channel_url):
         # Прокручиваем страницу вниз, чтобы прогрузился весь контент
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(3)
+        logger.info("📄 Получаем HTML страницы...")
+        html_source = driver.page_source
+        logger.info(f"HTML страницы:\n{html_source[:2000]}")  # Выведет первые 2000 символов
 
         stats = {}
 
         def get_stat(xpath, stat_name):
             """Безопасно парсит элемент по XPATH."""
             try:
-                element = WebDriverWait(driver, 15).until(
+                element = WebDriverWait(driver, 30).until(
                     EC.presence_of_element_located((By.XPATH, xpath))
                 )
+                elements = driver.find_elements(By.XPATH, "//div[contains(text(), 'средний охват')]/preceding-sibling::h2")
+
+                if elements:
+                    avg_views = elements[0].text
+                    logger.info(f"Средний охват: {avg_views}")
+                else:
+                    logger.warning("❌ Средний охват не найден!")
+
                 stats[stat_name] = element.text.strip()
                 logger.info(f"{stat_name}: {stats[stat_name]}")
             except Exception as e:
